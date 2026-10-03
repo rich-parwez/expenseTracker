@@ -7,65 +7,106 @@ const expenseAmount = document.getElementById('expense-amount');
 const expenseCategory = document.getElementById('expense-category');
 const expenseDate = document.getElementById('expense-date');
 
-let expenses = JSON.parse(localStorage.getItem('expenses')) || [];
+const storageKey = 'expenses';
+let allExpenses = JSON.parse(localStorage.getItem(storageKey)) || [];
 let editingExpenseId = null;
 let deletingExpenseId = null;
 
-// Update UI to reflect expenses from local storage
-function updateUI() {
+function getVisibleExpenses() {
+    const filterValue = categoryFilter.value;
+    if (filterValue === 'All') {
+        return allExpenses;
+    }
+
+    return allExpenses.filter(expense => expense.category === filterValue);
+}
+
+function renderTable() {
     expenseTable.innerHTML = '';
+    const visibleExpenses = getVisibleExpenses();
     let total = 0;
 
-    if (expenses.length === 0) {
+    if (visibleExpenses.length === 0) {
         const emptyMessageRow = document.createElement('tr');
-        emptyMessageRow.innerHTML = `<td colspan='5' class='empty-table-message'>No expenses recorded.</td>`;
+        emptyMessageRow.innerHTML = "<td colspan='5' class='empty-table-message'>No expenses recorded.</td>";
         expenseTable.appendChild(emptyMessageRow);
-    } else {
-        expenses.forEach(expense => {
-            const row = document.createElement('tr');
-            row.innerHTML = `
-            <td>${expense.name}</td>
-            <td>$${expense.amount.toFixed(2)}</td>
-            <td>${expense.category}</td>
-            <td>${expense.date}</td>
-            <td>
-            <button class='edit-btn' onclick='openEditModal(${expense.id})'>Edit</button>
-            <button class='delete-btn' onclick='openDeleteModal(${expense.id})'>Delete</button>
-            </td>`;
-            expenseTable.appendChild(row);
-            total += expense.amount;
-        });
+        totalExpenseDisplay.textContent = '$0.00';
+        return;
     }
-    totalExpenseDisplay.textContent = total.toFixed(2);
+
+    visibleExpenses.forEach(expense => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${escapeHtml(expense.name)}</td>
+            <td>$${Number(expense.amount).toFixed(2)}</td>
+            <td>${escapeHtml(expense.category)}</td>
+            <td>${formatDate(expense.date)}</td>
+            <td>
+                <button class='edit-btn' type='button' onclick='openEditModal(${expense.id})'>Edit</button>
+                <button class='delete-btn' type='button' onclick='openDeleteModal(${expense.id})'>Delete</button>
+            </td>
+        `;
+        expenseTable.appendChild(row);
+        total += Number(expense.amount);
+    });
+
+    totalExpenseDisplay.textContent = `$${total.toFixed(2)}`;
 }
 
-// Check if inputs are valid and enable the "Add Expense" button
-function checkInputs() {
-    if (expenseName.value.trim() && expenseAmount.value && expenseCategory.value && expenseDate.value) {
-        addExpenseButton.disabled = false;
-    } else {
-        addExpenseButton.disabled = true;
-    }
+function formatDate(dateString) {
+    if (!dateString) return 'N/A';
+
+    const date = new Date(dateString + 'T00:00:00');
+    if (Number.isNaN(date.getTime())) return dateString;
+
+    return date.toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+    });
 }
-// Event listener for input fields to check if button should be enabled
+
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function persistExpenses() {
+    localStorage.setItem(storageKey, JSON.stringify(allExpenses));
+}
+
+function checkInputs() {
+    const nameValid = expenseName.value.trim().length > 0;
+    const amountValid = Number(expenseAmount.value) > 0;
+    const categoryValid = !!expenseCategory.value;
+    const dateValid = !!expenseDate.value;
+
+    addExpenseButton.disabled = !(nameValid && amountValid && categoryValid && dateValid);
+}
+
 [expenseName, expenseAmount, expenseCategory, expenseDate].forEach(input => {
     input.addEventListener('input', checkInputs);
+    input.addEventListener('change', checkInputs);
 });
 
-// Add expense to the table and local storage
 addExpenseButton.addEventListener('click', () => {
     const name = expenseName.value.trim();
     const amount = parseFloat(expenseAmount.value);
     const category = expenseCategory.value;
     const date = expenseDate.value;
 
-    if (!name || isNaN(amount) || !date) {
-        alert('Please fill in all fields.');
+    if (!name || Number.isNaN(amount) || amount <= 0 || !category || !date) {
+        alert('Please fill in all fields with a valid amount.');
         return;
     }
+
     const expense = { id: Date.now(), name, amount, category, date };
-    expenses.push(expense);
-    localStorage.setItem('expenses', JSON.stringify(expenses));
+    allExpenses.push(expense);
+    persistExpenses();
 
     expenseName.value = '';
     expenseAmount.value = '';
@@ -73,76 +114,74 @@ addExpenseButton.addEventListener('click', () => {
     expenseDate.value = '';
     addExpenseButton.disabled = true;
 
-    updateUI();
+    renderTable();
 });
 
-// Open the edit modal and populate the fields
 function openEditModal(id) {
-    const expense = expenses.find(exp => exp.id === id);
+    const expense = allExpenses.find(exp => exp.id === id);
     if (!expense) return;
 
-    document.getElementById('edit-expense-name').value = expense.name;
-    document.getElementById('edit-expense-amount').value = expense.amount;
-    document.getElementById('edit-expense-category').value = expense.category;
-    document.getElementById('edit-expense-date').value = expense.date;
+    const editName = document.getElementById('edit-expense-name');
+    const editAmount = document.getElementById('edit-expense-amount');
+    const editCategory = document.getElementById('edit-expense-category');
+    const editDate = document.getElementById('edit-expense-date');
+
+    editName.value = expense.name;
+    editAmount.value = expense.amount;
+    editCategory.value = expense.category;
+    editDate.value = expense.date;
 
     editingExpenseId = id;
     openModal('edit-modal');
 }
-// Save the edited expense
+
 document.getElementById('confirm-edit').addEventListener('click', () => {
     const name = document.getElementById('edit-expense-name').value.trim();
     const amount = parseFloat(document.getElementById('edit-expense-amount').value);
     const category = document.getElementById('edit-expense-category').value;
     const date = document.getElementById('edit-expense-date').value;
 
-    if (!name || isNaN(amount) || !date) {
-        alert('Please fill in all fields.');
+    if (!name || Number.isNaN(amount) || amount <= 0 || !category || !date) {
+        alert('Please fill in all fields with a valid amount.');
         return;
     }
-    const index = expenses.findIndex(exp => exp.id === editingExpenseId);
+
+    const index = allExpenses.findIndex(exp => exp.id === editingExpenseId);
     if (index > -1) {
-        expenses[index] = { id: editingExpenseId, name, amount, category, date };
-        localStorage.setItem('expenses', JSON.stringify(expenses));
-        updateUI();
+        allExpenses[index] = { id: editingExpenseId, name, amount, category, date };
+        persistExpenses();
+        renderTable();
     }
+
     closeModal('edit-modal');
 });
 
-// Open the delete confirmation modal
 function openDeleteModal(id) {
     deletingExpenseId = id;
     openModal('delete-modal');
-
 }
-// Confirm and delete the expense
+
 document.getElementById('confirm-delete').addEventListener('click', () => {
-    expenses = expenses.filter(exp => exp.id !== deletingExpenseId);
-    localStorage.setItem('expenses', JSON.stringify(expenses));
-    updateUI();
+    allExpenses = allExpenses.filter(exp => exp.id !== deletingExpenseId);
+    persistExpenses();
+    renderTable();
     closeModal('delete-modal');
 });
 
-// Open modal by ID
 function openModal(modalId) {
-    document.getElementById(modalId).style.display = 'flex';
-
+    const modal = document.getElementById(modalId);
+    if (!modal) return;
+    modal.style.display = 'flex';
+    modal.setAttribute('aria-hidden', 'false');
 }
-// Close modal by ID
+
 function closeModal(modalId) {
-    document.getElementById(modalId).style.display = 'none';
-
+    const modal = document.getElementById(modalId);
+    if (!modal) return;
+    modal.style.display = 'none';
+    modal.setAttribute('aria-hidden', 'true');
 }
-// Filter expenses by category
-categoryFilter.addEventListener('change', () => {
-    const filterValue = categoryFilter.value;
-    if (filterValue !== 'All') {
-        expenses = JSON.parse(localStorage.getItem('expenses')) || [];
-        expenses = expenses.filter(exp => exp.category === filterValue);
-    } else {
-        expenses = JSON.parse(localStorage.getItem('expenses')) || [];
-    } updateUI();
-});
 
-// Initial UI update
-updateUI();
+categoryFilter.addEventListener('change', renderTable);
+
+renderTable();
